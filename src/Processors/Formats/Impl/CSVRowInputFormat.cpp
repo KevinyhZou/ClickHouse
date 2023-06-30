@@ -11,7 +11,7 @@
 #include <DataTypes/Serializations/SerializationNullable.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypeNullable.h>
-
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -113,7 +113,7 @@ void CSVRowInputFormat::resetParser()
     buf->reset();
 }
 
-static void skipEndOfLine(ReadBuffer & in)
+static void skipEndOfLine(ReadBuffer & in, const bool & skip_to_end)
 {
     /// \n (Unix) or \r\n (DOS/Windows) or \n\r (Mac OS Classic)
 
@@ -132,6 +132,10 @@ static void skipEndOfLine(ReadBuffer & in)
             throw Exception(ErrorCodes::INCORRECT_DATA,
                 "Cannot parse CSV format: found \\r (CR) not followed by \\n (LF)."
                 " Line must end by \\n (LF) or \\r\\n (CR LF) or \\n\\r.");
+    }
+    else if (!in.eof() && skip_to_end)
+    {
+        skipToNextLineOrEOF(in);
     }
     else if (!in.eof())
         throw Exception(ErrorCodes::INCORRECT_DATA, "Expected end of line");
@@ -193,8 +197,8 @@ void CSVFormatReader::skipRowEndDelimiter()
     skipWhitespacesAndTabs(*buf, format_settings.csv.allow_whitespace_or_tab_as_delimiter);
     if (buf->eof())
         return;
-
-    skipEndOfLine(*buf);
+    
+    skipEndOfLine(*buf, format_settings.csv.allow_skip_to_lineend_while_input_too_much);
 }
 
 void CSVFormatReader::skipHeaderRow()
@@ -279,7 +283,7 @@ bool CSVFormatReader::parseRowEndWithDiagnosticInfo(WriteBuffer & out)
         return false;
     }
 
-    skipEndOfLine(*buf);
+    skipEndOfLine(*buf, format_settings.csv.allow_skip_to_lineend_while_input_too_much);
     return true;
 }
 
@@ -288,7 +292,7 @@ bool CSVFormatReader::readField(
     const DataTypePtr & type,
     const SerializationPtr & serialization,
     bool is_last_file_column,
-    const String & /*column_name*/)
+    const String &)
 {
     if (format_settings.csv.trim_whitespaces || !isStringOrFixedString(removeNullable(type))) [[likely]]
         skipWhitespacesAndTabs(*buf, format_settings.csv.allow_whitespace_or_tab_as_delimiter);
@@ -315,9 +319,38 @@ bool CSVFormatReader::readField(
         /// If value is null but type is not nullable then use default value instead.
         return SerializationNullable::deserializeTextCSVImpl(column, *buf, format_settings, serialization);
     }
-
     /// Read the column normally.
-    serialization->deserializeTextCSV(column, *buf, format_settings);
+    BufferBase::Position pos_start = buf->position();
+    size_t col_size = column.size();
+    try
+    {
+        if (format_settings.csv.allow_check_deserialize_result)
+        {
+            std::string field;
+            readCSVField(field, *buf, format_settings.csv);
+            ReadBufferFromMemory tmp(field);
+            serialization->deserializeTextCSV(column, tmp, format_settings);
+            if (column.size() == col_size + 1 && field.size() > 0 && tmp.position() != tmp.buffer().end())
+                throw Exception(ErrorCodes::LOGICAL_ERROR, "Text CSV deserialize field bytes logical error.");
+        }
+        else
+           serialization->deserializeTextCSV(column, *buf, format_settings);
+    }
+    catch (Exception & e)
+    {
+        LOG_INFO(&Poco::Logger::get("CSVRowInputFormat"), "Failed to deserialize CSV column, exception message:{}", e.what());
+        if (format_settings.csv.allow_set_default_value_while_deserialize_failed)
+        {
+            // Reset the column and buffer position, then skip the field and set column default value.
+            if (column.size() == col_size + 1)
+                column.popBack(1);
+            buf->position() = pos_start;
+            skipField();
+            column.insertDefault();
+        }
+        else
+            throw;
+    }
     return true;
 }
 

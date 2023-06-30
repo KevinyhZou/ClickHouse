@@ -30,6 +30,7 @@ public:
 
     std::vector<String> readNames() override;
     std::vector<String> readTypes() override;
+    bool checkForEndOfLine() override;
 
 private:
     std::vector<String> input_field_names;

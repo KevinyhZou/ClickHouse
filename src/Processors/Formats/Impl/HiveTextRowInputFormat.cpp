@@ -15,7 +15,6 @@ static FormatSettings updateFormatSettings(const FormatSettings & settings, cons
 {
     FormatSettings updated = settings;
     updated.skip_unknown_fields = true;
-    updated.with_names_use_header = true;
     updated.date_time_input_format = FormatSettings::DateTimeInputFormat::BestEffort;
     updated.csv.delimiter = updated.hive_text.fields_delimiter;
     if (settings.hive_text.input_field_names.empty())
@@ -52,6 +51,14 @@ std::vector<String> HiveTextFormatReader::readNames()
 std::vector<String> HiveTextFormatReader::readTypes()
 {
     throw Exception(ErrorCodes::NOT_IMPLEMENTED, "HiveTextRowInputFormat::readTypes is not implemented");
+}
+
+bool HiveTextFormatReader::checkForEndOfLine()
+{
+    if (buf->eof() || *buf->position() == '\n' || *buf->position() == '\r')
+        return true;
+    else
+        return false;
 }
 
 void registerInputFormatHiveText(FormatFactory & factory)

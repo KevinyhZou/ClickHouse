@@ -38,6 +38,7 @@ protected:
 
 private:
     bool allowSyncAfterError() const override { return true; }
+    bool allowSetColumnDefaultValueIfNoInput() override { return format_settings.csv.allow_set_default_value_while_input_too_few; }
     void syncAfterError() override;
 
 protected:
@@ -86,6 +87,8 @@ public:
     void setReadBuffer(ReadBuffer & in_) override;
 
     FormatSettings::EscapingRule getEscapingRule() const override { return FormatSettings::EscapingRule::CSV; }
+
+    BufferBase::Position findNextFieldDelimiter();
 
 protected:
     PeekableReadBuffer * buf;
