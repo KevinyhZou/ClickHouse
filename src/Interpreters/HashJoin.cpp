@@ -1039,6 +1039,7 @@ public:
     {
         PaddedPODArray<UInt64> blocks;
         PaddedPODArray<UInt32> row_nums;
+        PaddedPODArray<UInt32> row_indexes;
     };
 
     AddedColumns(
@@ -1257,7 +1258,7 @@ void AddedColumns<true>::applyLazyDefaults()
 }
 
 template <>
-void AddedColumns<false>::appendFromBlock(const Block & block, size_t row_num,const bool has_defaults)
+void AddedColumns<false>::appendFromBlock(const Block & block, size_t row_num, size_t, const bool has_defaults)
 {
     if (has_defaults)
         applyLazyDefaults();
@@ -1289,7 +1290,7 @@ void AddedColumns<false>::appendFromBlock(const Block & block, size_t row_num,co
 }
 
 template <>
-void AddedColumns<true>::appendFromBlock(const Block & block, size_t row_num, bool)
+void AddedColumns<true>::appendFromBlock(const Block & block, size_t row_num, size_t row_index, bool)
 {
 #ifndef NDEBUG
     checkBlock(block);
@@ -1298,6 +1299,7 @@ void AddedColumns<true>::appendFromBlock(const Block & block, size_t row_num, bo
     {
         lazy_output.blocks.emplace_back(reinterpret_cast<UInt64>(&block));
         lazy_output.row_nums.emplace_back(static_cast<uint32_t>(row_num));
+        lazy_output.row_indexs.emplace_back(static_cast<uint32_t>(row_index));
     }
 }
 template<>
@@ -1419,7 +1421,8 @@ void addFoundRowAll(
     AddedColumns & added,
     IColumn::Offset & current_offset,
     KnownRowsHolder<multiple_disjuncts> & known_rows [[maybe_unused]],
-    JoinStuff::JoinUsedFlags * used_flags [[maybe_unused]])
+    JoinStuff::JoinUsedFlags * used_flags [[maybe_unused]],
+    std::vector<SizeT> row_indexes = {0})
 {
     if constexpr (add_missing)
         added.applyLazyDefaults();
@@ -1454,10 +1457,13 @@ void addFoundRowAll(
     }
     else
     {
-        for (auto it = mapped.begin(); it.ok(); ++it)
+        for (size_t i = 0; i < row_indexes.size(); ++i)
         {
-            added.appendFromBlock(*it->block, it->row_num, false);
-            ++current_offset;
+            for (auto it = mapped.begin(); it.ok(); ++it)
+            {
+                added.appendFromBlock(*it->block, it->row_num, false);
+                ++current_offset;
+            }
         }
     }
 }
@@ -1478,6 +1484,40 @@ void setUsed(IColumn::Filter & filter [[maybe_unused]], size_t pos [[maybe_unuse
 {
     if constexpr (need_filter)
         filter[pos] = 1;
+}
+
+template <JoinKind KIND, JoinStrictness STRICTNESS, typename KeyGetter, typename Map, bool need_filter, bool multiple_disjuncts, typename AddedColumns>
+NO_INLINE size_t joinRightColumnsBySortedLeft(
+    std::vector<KeyGetter> && key_getter_vector,
+    const std::vector<const Map *> & right_mapv,
+    const std::vector<const Map *> & left_mapv,
+    AddedColumns & added_columns,
+    JoinStuff::JoinUsedFlags & used_flags [[maybe_unused]])
+{
+    for (size_t onexpr_idx = 0; onexpr_idx < added_columns.join_on_keys.size(); ++onexpr_idx)
+    {
+        const Map * left_map = left_mapv[onexpr_idx];
+        if (!left_map) continue;
+        for (auto it = left_map.begin(); it.ok(); ++it)
+        {
+            if (!it.isFirst())
+                continue;
+            auto find_result = row_acceptable ? key_getter_vector[onexpr_idx].findKey(*(right_mapv[onexpr_idx]), it->row_num, pool) : FindResult();
+            if (find_result.isFound())
+            {
+                if constexpr (join_features.is_all_join)
+                {
+                    std::vector<SizeT> row_nums{it->row_num};
+                    auto tmp = it + 1;
+                    /// append from block
+                    for (; tmp.ok() && !tmp.isFirst(); ++tmp)
+                        row_nums.emplace_back(tmp->row_num);
+                    
+                    it = tmp;
+                }
+            }
+        }
+    }
 }
 
 /// Joins right table columns which indexes are present in right_indexes using specified map.
@@ -1788,7 +1828,6 @@ Block HashJoin::joinBlockImpl(
     AddedColumns<!join_features.is_any_join> added_columns(
         block, block_with_columns_to_add, savedBlockSample(), *this, std::move(join_on_keys), join_features.is_asof_join, is_join_get);
 
-
     bool has_required_right_keys = (required_right_keys.columns() != 0);
     added_columns.need_filter = join_features.need_filter || has_required_right_keys;
     added_columns.max_joined_block_rows = max_joined_block_rows;
@@ -1796,6 +1835,17 @@ Block HashJoin::joinBlockImpl(
         added_columns.max_joined_block_rows = std::numeric_limits<size_t>::max();
     else
         added_columns.reserve(join_features.need_replication);
+
+    
+    //
+    
+    size_t num_joined;
+    for (size_t i = 0; i < block.rows(); i+=256)
+    {
+        Arena pool;
+        std::vector<MapsVariant> left_maps;
+        tryRerangeLeftTableData(block, join_on_keys, pool, i, 256, data->type, left_maps);
+    }
 
     size_t num_joined = switchJoinRightColumns<KIND, STRICTNESS>(maps_, added_columns, data->type, used_flags);
     /// Do not hold memory for join_on_keys anymore
@@ -1862,6 +1912,33 @@ Block HashJoin::joinBlockImpl(
     }
 
     return remaining_block;
+}
+
+
+template<typename JoinOnKeyColumns>
+void HashJoin::tryRerangeLeftTableData(const Block & block, const std::vector<JoinOnKeyColumns> & join_on_keys, const Arena & pool, size_t start_pos, size_t length, 
+    HashJoin::Type type, std::vector<MapsVariant> maps)
+{
+    const Block slice = block.cloneWithCutColumns(start_pos, length);
+    bool is_inserted = false;
+    for (size_t i = 0; i < maps.size(); ++i)
+    {
+        if (kind != JoinKind::Cross)
+        {
+            joinDispatch(kind, strictness, maps[i], [&](auto kind_, auto strictness_, auto & map)
+            {
+                JoinOnKeyColumns join_on_key = join_on_keys[i];
+                insertFromBlockImpl<strictness_>(
+                    *this, type, map, length,
+                    join_on_key.key_columns,
+                    join_on_key.key_sizes[i], &slice,
+                    join_on_key.null_map,
+                    join_on_key.join_mask_column.getData(),
+                    pool,
+                    is_inserted);
+            });
+        }
+    }
 }
 
 void HashJoin::joinBlockImplCross(Block & block, ExtraBlockPtr & not_processed) const
