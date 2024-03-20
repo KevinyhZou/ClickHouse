@@ -470,6 +470,10 @@ private:
     static Type chooseMethod(JoinKind kind, const ColumnRawPtrs & key_columns, Sizes & key_sizes);
 
     bool empty() const;
+
+    template<typename JoinOnKeyColumns, typename Maps>
+    void tryRerangeLeftTableData(const Block & block, const std::vector<JoinOnKeyColumns> & join_on_keys, const Arena & pool, size_t start_pos, size_t length, 
+        HashJoin::Type type, std::vector<Maps> maps) const;
 };
 
 }
