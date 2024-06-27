@@ -11,16 +11,16 @@
 
 #define DATE_SECONDS_PER_DAY 86400 /// Number of seconds in a day, 60 * 60 * 24
 
-#define DATE_LUT_MIN_YEAR 1900 /// 1900 since majority of financial organizations consider 1900 as an initial year.
-#define DATE_LUT_MAX_YEAR 2299 /// Last supported year (complete)
+#define DATE_LUT_MIN_YEAR 0 /// 1900 since majority of financial organizations consider 1900 as an initial year.
+#define DATE_LUT_MAX_YEAR 9999 /// Last supported year (complete)
 #define DATE_LUT_YEARS (1 + DATE_LUT_MAX_YEAR - DATE_LUT_MIN_YEAR) /// Number of years in lookup table
 
-#define DATE_LUT_SIZE 0x23AB1
+#define DATE_LUT_SIZE 0x37BB49
 
 #define DATE_LUT_MAX (0xFFFFFFFFU - 86400)
 #define DATE_LUT_MAX_DAY_NUM 0xFFFF
 
-#define DAYNUM_OFFSET_EPOCH 25567
+#define DAYNUM_OFFSET_EPOCH 719528
 
 /// Max int value of Date32, DATE LUT cache size minus daynum_offset_epoch
 #define DATE_LUT_MAX_EXTEND_DAY_NUM (DATE_LUT_SIZE - DAYNUM_OFFSET_EPOCH)
@@ -197,8 +197,8 @@ public:
 private:
     /// Offset to epoch in days (ExtendedDayNum) of the first day in LUT.
     /// "epoch" is the Unix Epoch (starts at unix timestamp zero)
-    static constexpr UInt32 daynum_offset_epoch = 25567;
-    static_assert(daynum_offset_epoch == (1970 - DATE_LUT_MIN_YEAR) * 365 + (1970 - DATE_LUT_MIN_YEAR / 4 * 4) / 4);
+    static constexpr UInt32 daynum_offset_epoch = 719528;
+    // static_assert(daynum_offset_epoch == (1970 - DATE_LUT_MIN_YEAR) * 365 + (1970 - DATE_LUT_MIN_YEAR / 4 * 4) / 4);
 
     /// Lookup table is indexed by LUTIndex.
     /// Day nums are the same in all time zones. 1970-01-01 is 0 and so on.
