@@ -527,19 +527,7 @@ SELECT toDate32('1955-01-01') AS value, toTypeName(value);
 └────────────┴────────────────────────────────────┘
 ```
 
-2. The value is outside the range:
-
-``` sql
-SELECT toDate32('1899-01-01') AS value, toTypeName(value);
-```
-
-```response
-┌──────value─┬─toTypeName(toDate32('1899-01-01'))─┐
-│ 1900-01-01 │ Date32                             │
-└────────────┴────────────────────────────────────┘
-```
-
-3. With [Date](../data-types/date.md) argument:
+2. With [Date](../data-types/date.md) argument:
 
 ``` sql
 SELECT toDate32(toDate('1899-01-01')) AS value, toTypeName(value);
@@ -567,7 +555,7 @@ Result:
 
 ```response
 ┌─toDate32OrZero('1899-01-01')─┬─toDate32OrZero('')─┐
-│                   1900-01-01 │         1900-01-01 │
+│                   1899-01-01 │         0000-01-01 │
 └──────────────────────────────┴────────────────────┘
 ```
 
