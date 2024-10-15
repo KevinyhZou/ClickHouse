@@ -99,7 +99,7 @@ static std::initializer_list<std::pair<ClickHouseVersion, SettingsChangesHistory
             {"distributed_cache_data_packet_ack_window", 5, 5, "A setting for ClickHouse Cloud"},
             {"allow_experimental_refreshable_materialized_view", false, true, "Not experimental anymore"},
             {"max_parts_to_move", 1000, 1000, "New setting"},
-            {"input_format_orc_writer_time_zone_name", "GMT", "GMT", "The time zone name for ORC writer, the default ORC writer's time zone is GMT."},
+            {"output_format_orc_writer_time_zone_name", "GMT", "GMT", "The time zone name for ORC writer, the default ORC writer's time zone is GMT."},
         }
     },
     {"24.9",

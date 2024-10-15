@@ -191,7 +191,7 @@ When reading ORC files, skip whole stripes or row groups based on the WHERE/PREW
     M(String, input_format_orc_reader_time_zone_name, "GMT", R"(
 The time zone name for ORC row reader, the default ORC row reader's time zone is GMT.
 )", 0) \
-    M(String, input_format_orc_writer_time_zone_name, "GMT", R"(
+    M(String, output_format_orc_writer_time_zone_name, "GMT", R"(
 The time zone name for ORC writer, the default ORC writer's time zone is GMT.
 )", 0) \
     M(Bool, input_format_parquet_allow_missing_columns, true, R"(
