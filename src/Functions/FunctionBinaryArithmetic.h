@@ -1327,12 +1327,11 @@ class FunctionBinaryArithmetic : public IFunction
         return function->execute(new_arguments, result_type, input_rows_count);
     }
 
-    /// Execute the comparison when the operation is least or greatest, and the input type is nullable numeric, make the result not to
-    /// return null when the input has null vaues.
+    /// Execute the comparison when the operation is least or greatest, and the input type is nullable numeric. Make the result not to
+    /// return null by ignore null input values.
     ColumnPtr executeComparison(const ColumnsWithTypeAndName & arguments, const DataTypePtr & result_type, size_t input_rows_count) const
     {
-        bool args_have_nulls = false;
-        bool args_have_constants = false;
+        bool args_have_nulls = false, args_have_constants = false;
         for (const auto & arg : arguments)
         {
             if (!args_have_constants)
